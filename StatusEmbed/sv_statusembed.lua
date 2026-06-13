@@ -118,3 +118,110 @@ local function buildEmbedPayload(depCounts, civ, connected, players)
 	if CFG.BotAvatarURL ~= '' then payload.avatar_url = CFG.BotAvatarURL end
 	return payload
 end
+
+-- KVP keys: remember the message id and which webhook it belongs to
+local KVP_MSG_ID = 'pea_status_msg_id'
+local KVP_MSG_URL = 'pea_status_webhook_url'
+
+local state = {
+	disabled = false, -- Set after a fatal webhook failure (until restart)
+	messageId = nil,
+	lastSignature = nil,
+	lastPushTime = 0,
+}
+
+-- POST a brand-new message; ?wait=true returns the message id in the body
+local function postNew(payload)
+	local url = CFG.WebhookURL .. '?wait=true'
+	PerformHttpRequest(url, function(statusCode, responseText, responseHeaders)
+		if statusCode == 200 and responseText then
+			local ok, decoded = pcall(json.decode, responseText)
+			if ok and decoded and decoded.id then
+				state.messageId = decoded.id
+				SetResourceKvpString(KVP_MSG_ID, decoded.id)
+				SetResourceKvpString(KVP_MSG_URL, CFG.WebhookURL)
+				print('[PEA-Status] Posted status message id=' .. decoded.id)
+			else
+				print('[PEA-Status] POST ok but no message id returned; disabling until restart.')
+				state.disabled = true
+			end
+		else
+			print('[PEA-Status] POST failed (HTTP ' .. tostring(statusCode) .. '). Check WebhookURL/permissions. Disabling until restart.')
+			state.disabled = true
+		end
+	end, 'POST', json.encode(payload), { ['Content-Type'] = 'application/json' })
+end
+
+-- PATCH the existing message; 404 means it was deleted -> recreate it
+local function patchExisting(payload)
+	local url = CFG.WebhookURL .. '/messages/' .. state.messageId
+	PerformHttpRequest(url, function(statusCode, responseText, responseHeaders)
+		if statusCode == 200 then
+			return -- Updated in place
+		elseif statusCode == 404 then
+			print('[PEA-Status] Status message missing (404). Recreating.')
+			state.messageId = nil
+			DeleteResourceKvp(KVP_MSG_ID)
+			postNew(payload)
+		else
+			print('[PEA-Status] PATCH failed (HTTP ' .. tostring(statusCode) .. '). Disabling until restart.')
+			state.disabled = true
+		end
+	end, 'PATCH', json.encode(payload), { ['Content-Type'] = 'application/json' })
+end
+
+-- Edit if we have a message id, otherwise post a new one
+local function postOrUpdate(payload)
+	if state.messageId == nil then
+		postNew(payload)
+	else
+		patchExisting(payload)
+	end
+end
+
+-- Adopt a saved message id only if it belongs to the configured webhook
+local function loadPersistedId()
+	local savedUrl = GetResourceKvpString(KVP_MSG_URL)
+	local savedId = GetResourceKvpString(KVP_MSG_ID)
+	if savedId and savedUrl == CFG.WebhookURL then
+		state.messageId = savedId
+	else
+		state.messageId = nil
+		if savedId then
+			print('[PEA-Status] Saved message id is for a different webhook; will post fresh.')
+		end
+	end
+end
+
+-- Recompute and push only if forced, heartbeat due, or the content changed
+local function tick(force)
+	if state.disabled or not CFG.Enabled then return end
+	local depCounts, civ, connected, players = gatherState()
+	local sig = signatureOf(depCounts, civ, connected, players)
+	local heartbeatDue = (os.time() - state.lastPushTime) >= (CFG.HeartbeatSeconds or 600)
+	if force or heartbeatDue or sig ~= state.lastSignature then
+		postOrUpdate(buildEmbedPayload(depCounts, civ, connected, players))
+		state.lastSignature = sig
+		state.lastPushTime = os.time()
+	end
+end
+
+-- One init path covers both server start and resource restart (KVP persists across both)
+CreateThread(function()
+	if not CFG.Enabled then
+		print('[PEA-Status] Disabled in config.')
+		return
+	end
+	if CFG.WebhookURL == '' then
+		print('[PEA-Status] Enabled but WebhookURL is empty; disabling.')
+		state.disabled = true
+		return
+	end
+	loadPersistedId()
+	Wait(5000) -- Let players register first
+	tick(true) -- The only initial push (edits existing or posts new)
+	while true do
+		Wait((CFG.UpdateIntervalSeconds or 60) * 1000)
+		tick(false) -- Change-gated thereafter
+	end
+end)
