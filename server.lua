@@ -114,7 +114,7 @@ function goOffDuty(src, sendChat)
 	end
 end
 
--- /duty: toggle on/off duty as your default department
+-- /duty: off duty opens the department menu; on duty goes straight off
 RegisterCommand('duty', function(source, args, rawCommand)
 	local src = source
 	if hasPerms[src] == nil then -- Permissions check
@@ -122,10 +122,40 @@ RegisterCommand('duty', function(source, args, rawCommand)
 		return
 	end
 	if onDuty[src] ~= nil then
-		goOffDuty(src, true)
-	else
-		goOnDuty(src, activeBlip[src])
+		goOffDuty(src, true) -- Already on duty -> go off, no menu
+		return
 	end
+	local allowed = permTracker[src] or {}
+	if #allowed == 0 then
+		sendMsg(src, '^1ERROR: You have no departments available.')
+		return
+	end
+	-- Build menu options: tag = identity echoed back, label = what the player sees
+	local options = {}
+	for i = 1, #allowed do
+		local tag = allowed[i]
+		local dept = deptOf(tag)
+		options[#options + 1] = { tag = tag, label = dept and deptLabel(dept) or tag }
+	end
+	TriggerClientEvent('PoliceEMSActivity:OpenDutyMenu', src, { title = Config.Menu.Title, options = options })
+end)
+
+-- A department was chosen in the NUI menu; re-validate then put them on duty
+RegisterNetEvent('PoliceEMSActivity:SelectDuty')
+AddEventHandler('PoliceEMSActivity:SelectDuty', function(chosenTag)
+	local src = source
+	if hasPerms[src] == nil then return end -- Must have permissions
+	if onDuty[src] ~= nil then return end -- Ignore if already on duty
+	local allowed = permTracker[src] or {}
+	local ok = false
+	for i = 1, #allowed do
+		if allowed[i] == chosenTag then ok = true break end -- Must be one of theirs
+	end
+	if not ok then
+		sendMsg(src, '^1ERROR: Invalid department selection.')
+		return
+	end
+	goOnDuty(src, chosenTag)
 end)
 
 RegisterCommand('cops', function(source, args, rawCommand)
