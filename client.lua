@@ -26,3 +26,25 @@ AddEventHandler('PoliceEMSActivity:TakeWeapons', function()
 	SetPedArmour(GetPlayerPed(-1), 0)
 	RemoveAllPedWeapons(GetPlayerPed(-1), true);
 end)
+
+-- Open the duty department menu (sent by the server when off duty)
+RegisterNetEvent('PoliceEMSActivity:OpenDutyMenu')
+AddEventHandler('PoliceEMSActivity:OpenDutyMenu', function(payload)
+	SetNuiFocus(true, true) -- Give the player the cursor
+	SendNUIMessage({ action = 'open', title = payload.title, options = payload.options })
+end)
+
+-- A department button was clicked
+RegisterNUICallback('selectDuty', function(data, cb)
+	SetNuiFocus(false, false) -- Release the cursor
+	if data and data.tag then
+		TriggerServerEvent('PoliceEMSActivity:SelectDuty', data.tag)
+	end
+	cb('ok')
+end)
+
+-- Menu cancelled (Cancel button or ESC)
+RegisterNUICallback('closeDuty', function(data, cb)
+	SetNuiFocus(false, false) -- Release the cursor
+	cb('ok')
+end)
