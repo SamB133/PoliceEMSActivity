@@ -158,12 +158,23 @@ AddEventHandler('PoliceEMSActivity:SelectDuty', function(chosenTag)
 	goOnDuty(src, chosenTag)
 end)
 
-RegisterCommand('cops', function(source, args, rawCommand)
-	-- Prints the active cops online with a /blip that is on
-	sendMsg(source, 'The active cops on are:')
-	for id, _ in pairs(onDuty) do
-		TriggerClientEvent('chatMessage', source, '^9[^4' .. id .. '^9] ^0' .. GetPlayerName(id));
+-- /online: per-department totals, then CIV (everyone connected and off duty)
+RegisterCommand('online', function(source, args, rawCommand)
+	local src = source
+	local counts = {} -- [tag] = number on duty
+	local onDutyCount = 0
+	for playerSrc, _ in pairs(onDuty) do
+		local tag = activeBlip[playerSrc]
+		if tag ~= nil then counts[tag] = (counts[tag] or 0) + 1 end
+		onDutyCount = onDutyCount + 1
 	end
+	local civ = #GetPlayers() - onDutyCount -- Connected minus on duty
+	if civ < 0 then civ = 0 end
+	for i = 1, #Departments.ordered do -- One line per department, config order
+		local d = Departments.ordered[i]
+		sendMsg(src, deptLabel(d) .. ': ' .. (counts[d.tag] or 0))
+	end
+	sendMsg(src, deptLabel(Config.Civ) .. ': ' .. civ) -- CIV last
 end)
 
 RegisterNetEvent('PoliceEMSActivity:RegisterUser')
