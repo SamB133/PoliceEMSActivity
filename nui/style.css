@@ -1,0 +1,48 @@
+html, body { margin: 0; height: 100%; font-family: Arial, Helvetica, sans-serif; }
+
+/* Hidden by default; the client toggles this off to show the menu */
+.hidden { display: none !important; }
+
+/* Dim the screen and center the card */
+#wrap {
+	position: fixed;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: rgba(0, 0, 0, 0.45);
+}
+
+/* The menu card */
+#menu {
+	background: #1e1f24;
+	color: #fff;
+	min-width: 280px;
+	max-width: 360px;
+	padding: 20px;
+	border-radius: 10px;
+	box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+}
+
+#menu h2 {
+	margin: 0 0 14px;
+	font-size: 18px;
+	text-align: center;
+}
+
+/* Department + cancel buttons */
+.btn {
+	display: block;
+	width: 100%;
+	margin: 6px 0;
+	padding: 10px 12px;
+	border: 0;
+	border-radius: 6px;
+	background: #2d6cdf;
+	color: #fff;
+	font-size: 15px;
+	cursor: pointer;
+}
+.btn:hover { background: #3a7bf0; }
+.cancel { background: #444; margin-top: 14px; }
+.cancel:hover { background: #555; }
