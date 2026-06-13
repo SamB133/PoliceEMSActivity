@@ -36,7 +36,6 @@ Config.StatusEmbed = {
     ServerName            = 'My Server',  -- Embed title
     ThumbnailURL          = '',           -- '' = no thumbnail
     Color                 = '',           -- Side-bar hex e.g. '#5865F2'; '' or invalid => black
-    UpdateIntervalSeconds = 60,
+    UpdateIntervalSeconds = 60,           -- How often (seconds) the embed refreshes
     MaxPlayers            = 'auto',       -- 'auto' => sv_maxClients convar, or set a number
-    HeartbeatSeconds      = 600,          -- Force a refresh at least this often (keeps footer time fresh)
 }

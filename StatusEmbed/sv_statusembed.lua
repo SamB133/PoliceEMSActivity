@@ -63,20 +63,6 @@ local function gatherState()
 	return depCounts, civ, connected, players
 end
 
--- A signature of everything the embed renders EXCEPT the footer time
-local function signatureOf(depCounts, civ, connected, players)
-	local parts = { 'C' .. connected, 'V' .. civ }
-	for i = 1, #Config.Departments do
-		local d = Config.Departments[i]
-		parts[#parts + 1] = d.name .. '=' .. (depCounts[d.tag] or 0)
-	end
-	for i = 1, #players do
-		local p = players[i]
-		parts[#parts + 1] = p.id .. ':' .. p.name .. ':' .. p.dept
-	end
-	return table.concat(parts, '|')
-end
-
 -- Build the webhook JSON body (embed + bot name/avatar)
 local function buildEmbedPayload(depCounts, civ, connected, players)
 	-- Department count lines, then CIV, then the connected-players header
@@ -126,8 +112,6 @@ local KVP_MSG_URL = 'pea_status_webhook_url'
 local state = {
 	disabled = false, -- Set after a fatal webhook failure (until restart)
 	messageId = nil,
-	lastSignature = nil,
-	lastPushTime = 0,
 }
 
 -- POST a brand-new message; ?wait=true returns the message id in the body
@@ -193,17 +177,11 @@ local function loadPersistedId()
 	end
 end
 
--- Recompute and push only if forced, heartbeat due, or the content changed
-local function tick(force)
+-- Rebuild the embed and push it (edit existing message, or post a new one)
+local function pushUpdate()
 	if state.disabled or not CFG.Enabled then return end
 	local depCounts, civ, connected, players = gatherState()
-	local sig = signatureOf(depCounts, civ, connected, players)
-	local heartbeatDue = (os.time() - state.lastPushTime) >= (CFG.HeartbeatSeconds or 600)
-	if force or heartbeatDue or sig ~= state.lastSignature then
-		postOrUpdate(buildEmbedPayload(depCounts, civ, connected, players))
-		state.lastSignature = sig
-		state.lastPushTime = os.time()
-	end
+	postOrUpdate(buildEmbedPayload(depCounts, civ, connected, players))
 end
 
 -- One init path covers both server start and resource restart (KVP persists across both)
@@ -219,9 +197,8 @@ CreateThread(function()
 	end
 	loadPersistedId()
 	Wait(5000) -- Let players register first
-	tick(true) -- The only initial push (edits existing or posts new)
 	while true do
+		pushUpdate() -- Refresh every interval, changed or not
 		Wait((CFG.UpdateIntervalSeconds or 60) * 1000)
-		tick(false) -- Change-gated thereafter
 	end
 end)
