@@ -1,10 +1,10 @@
 fx_version 'cerulean'
 game 'gta5'
 
-author 'JaredScar'
+author 'S. Benzy, JaredScar'
 description 'PoliceEMSActivity'
-version '2.1'
-url 'https://github.com/JaredScar/PoliceEMSActivity'
+version '3.0.0'
+url 'https://github.com/SamB133/PoliceEMSActivity'
 
 -- NUI duty menu
 ui_page 'nui/index.html'
