@@ -105,14 +105,52 @@ local function buildEmbedPayload(depCounts, civ, connected, players)
 	return payload
 end
 
--- KVP keys: remember the message id and which webhook it belongs to
+-- Persist the posted message id so restarts EDIT the same embed instead of posting a new one.
+-- Saved to BOTH a resource file (inspectable, survives restarts) and KVP (backup).
+local PERSIST_FILE = 'status_message_id.txt'
 local KVP_MSG_ID = 'pea_status_msg_id'
-local KVP_MSG_URL = 'pea_status_webhook_url'
 
 local state = {
 	disabled = false, -- Set after a fatal webhook failure (until restart)
 	messageId = nil,
 }
+
+-- Save the message id to the file + KVP
+local function persistMessageId(id)
+	local wroteFile = SaveResourceFile(GetCurrentResourceName(), PERSIST_FILE, tostring(id), -1)
+	SetResourceKvpString(KVP_MSG_ID, tostring(id))
+	if not wroteFile then
+		print('[PEA-Status] WARNING: could not write ' .. PERSIST_FILE .. ' (resource folder not writable?); relying on KVP.')
+	end
+end
+
+-- Forget the saved message id (file + KVP)
+local function clearMessageId()
+	state.messageId = nil
+	SaveResourceFile(GetCurrentResourceName(), PERSIST_FILE, '', -1)
+	DeleteResourceKvp(KVP_MSG_ID)
+end
+
+-- Load a saved id from the file (preferred) or KVP (backup); nil if none
+local function loadMessageId()
+	local id = LoadResourceFile(GetCurrentResourceName(), PERSIST_FILE)
+	local src = 'file'
+	if not id or id == '' then
+		id = GetResourceKvpString(KVP_MSG_ID)
+		src = 'kvp'
+	end
+	if not id or id == '' then
+		print('[PEA-Status] No saved message id found; will post a new embed.')
+		return nil
+	end
+	id = (id:gsub('%s+', '')) -- Strip any stray whitespace/newline
+	if id == '' then
+		print('[PEA-Status] Saved message id was blank; will post a new embed.')
+		return nil
+	end
+	print('[PEA-Status] Loaded saved message id=' .. id .. ' (from ' .. src .. '); will edit it.')
+	return id
+end
 
 -- POST a brand-new message; ?wait=true returns the message id in the body
 local function postNew(payload)
@@ -122,9 +160,8 @@ local function postNew(payload)
 			local ok, decoded = pcall(json.decode, responseText)
 			if ok and decoded and decoded.id then
 				state.messageId = decoded.id
-				SetResourceKvpString(KVP_MSG_ID, decoded.id)
-				SetResourceKvpString(KVP_MSG_URL, CFG.WebhookURL)
-				print('[PEA-Status] Posted status message id=' .. decoded.id)
+				persistMessageId(decoded.id)
+				print('[PEA-Status] Posted new status message id=' .. decoded.id)
 			else
 				print('[PEA-Status] POST ok but no message id returned; disabling until restart.')
 				state.disabled = true
@@ -143,9 +180,8 @@ local function patchExisting(payload)
 		if statusCode == 200 then
 			return -- Updated in place
 		elseif statusCode == 404 then
-			print('[PEA-Status] Status message missing (404). Recreating.')
-			state.messageId = nil
-			DeleteResourceKvp(KVP_MSG_ID)
+			print('[PEA-Status] Saved message not found (404); posting a new one.')
+			clearMessageId()
 			postNew(payload)
 		else
 			print('[PEA-Status] PATCH failed (HTTP ' .. tostring(statusCode) .. '). Disabling until restart.')
@@ -163,20 +199,6 @@ local function postOrUpdate(payload)
 	end
 end
 
--- Adopt a saved message id only if it belongs to the configured webhook
-local function loadPersistedId()
-	local savedUrl = GetResourceKvpString(KVP_MSG_URL)
-	local savedId = GetResourceKvpString(KVP_MSG_ID)
-	if savedId and savedUrl == CFG.WebhookURL then
-		state.messageId = savedId
-	else
-		state.messageId = nil
-		if savedId then
-			print('[PEA-Status] Saved message id is for a different webhook; will post fresh.')
-		end
-	end
-end
-
 -- Rebuild the embed and push it (edit existing message, or post a new one)
 local function pushUpdate()
 	if state.disabled or not CFG.Enabled then return end
@@ -184,7 +206,7 @@ local function pushUpdate()
 	postOrUpdate(buildEmbedPayload(depCounts, civ, connected, players))
 end
 
--- One init path covers both server start and resource restart (KVP persists across both)
+-- One init path covers both server start and resource restart (saved id persists across both)
 CreateThread(function()
 	if not CFG.Enabled then
 		print('[PEA-Status] Disabled in config.')
@@ -195,7 +217,7 @@ CreateThread(function()
 		state.disabled = true
 		return
 	end
-	loadPersistedId()
+	state.messageId = loadMessageId() -- Resume editing the existing embed if one was saved
 	Wait(5000) -- Let players register first
 	while true do
 		pushUpdate() -- Refresh every interval, changed or not
